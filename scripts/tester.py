@@ -1,8 +1,8 @@
 """
-Two-stage node testing (global track), same shape as free-configs:
+Two-stage node testing:
 
   1. tcp_check — one raw TCP connect. Runs inside the same 20 worker
-     slots as Xray, not as a separate mass scan.
+     slots as Xray.
   2. full_xray_check — only if TCP passed. Spawns Xray and curls
      https://www.gstatic.com/generate_204 through it.
 
@@ -120,13 +120,12 @@ async def full_xray_check(
     node: dict,
     local_port: int,
     timeout: float = XRAY_CHECK_TIMEOUT,
-    dialer: dict | None = None,
 ):
     """Returns (ok: bool, latency_seconds: float|None)."""
     fd, config_path = tempfile.mkstemp(prefix=f"xray_cfg_{local_port}_", suffix=".json")
     os.close(fd)
     with open(config_path, "w", encoding="utf-8") as handle:
-        json.dump(build_config(node, local_port, dialer=dialer), handle)
+        json.dump(build_config(node, local_port), handle)
 
     proc = None
     try:
