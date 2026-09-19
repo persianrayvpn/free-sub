@@ -1,8 +1,8 @@
-name: Check configs (global)
+name: Check configs
 
 on:
   schedule:
-    # Every 5 hours UTC (00:00, 05:00, 10:00, …). IR runs after this workflow finishes.
+    # Every 5 hours UTC (00:00, 05:00, 10:00, …).
     - cron: '0 */5 * * *'
   workflow_dispatch: {}
 
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: config-check-global
+  group: config-check
   cancel-in-progress: false
 
 env:
@@ -53,7 +53,7 @@ jobs:
           sudo chmod +x /usr/local/bin/xray
           xray version
 
-      - name: Run global tester
+      - name: Run tester
         working-directory: scripts
         timeout-minutes: 55
         run: python -u main.py
