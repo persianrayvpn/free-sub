@@ -1,0 +1,7 @@
+# Public IR-tagged egress lists. Fetched every IR run; do not pin live IPs here.
+# SOCKS4 lines are dropped at parse time. Candidates are probed for HTTP 204 + loc=IR.
+https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text&country=ir
+https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/countries/ir/data.txt
+https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/countries/IR/data.txt
+https://www.proxy-list.download/api/v1/get?type=http&country=IR
+https://www.proxy-list.download/api/v1/get?type=socks5&country=IR
