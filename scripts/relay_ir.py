@@ -189,6 +189,7 @@ async def build_pool(
 ) -> list[IrRelay]:
     if not candidates:
         return []
+    candidates.sort(key=lambda r: 0 if r.protocol == "socks5" else 1)
     print(f"Probing {len(candidates)} IR relay candidates (want {want}, min {minimum})")
     sem = asyncio.Semaphore(PROBE_CONCURRENCY)
     alive: list[IrRelay] = []
@@ -199,6 +200,11 @@ async def build_pool(
             if len(alive) >= want:
                 return
             ok = await probe_relay(relay, require_ir=require_ir)
+            if not ok:
+                return
+            # Public HTTP relays often 204 once then die. Confirm twice.
+            await asyncio.sleep(1.0)
+            ok = await probe_relay(relay, require_ir=False)
             if not ok:
                 return
             async with lock:
