@@ -1,10 +1,10 @@
 """
-Global (US-runner) pipeline:
+End-to-end pipeline:
 
  1. Read sources.txt
  2. Fetch each source, extract vless:// and trojan://
  3. Dedupe
- 4. TCP fan-out, then full Xray 204 probe
+ 4. TCP then Xray 204 probe (20 workers)
  5. Atomically write working.txt and working_base64.txt
 """
 
@@ -134,7 +134,6 @@ def write_outputs(working: list[dict]) -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
         f"# Updated: {timestamp}\n",
-        f"# track: global\n",
         f"# {len(working)} working nodes (sorted fastest first)\n\n",
     ]
     for row in working:
@@ -159,7 +158,7 @@ def write_step_summary(
     if not path:
         return
     with open(path, "a", encoding="utf-8") as handle:
-        handle.write("## Global config check\n\n")
+        handle.write("## Config check\n\n")
         handle.write(f"- unique nodes tested: {unique_nodes}\n")
         handle.write(f"- working: {working_count}\n")
         handle.write(f"- failed at TCP: {tcp_fail}\n")
@@ -168,7 +167,7 @@ def write_step_summary(
 
 
 async def main() -> int:
-    print("fetch-configs global tester starting", flush=True)
+    print("fetch-configs tester starting", flush=True)
     source_urls = read_sources()
     if not source_urls:
         print("No sources configured; refusing to overwrite previous results.")
