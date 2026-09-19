@@ -1,0 +1,68 @@
+name: Check configs (global)
+
+on:
+  schedule:
+    # Every 5 hours UTC (00:00, 05:00, 10:00, …). IR runs after this workflow finishes.
+    - cron: '0 */5 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: config-check-global
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  XRAY_VERSION: v26.7.28
+  XRAY_SHA256: 8195d909f1109b8f3d99eefe401a3c451d7bf4af71f24d3815420f77e5dd2a40
+
+jobs:
+  test-nodes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache Xray zip
+        uses: actions/cache@v4
+        with:
+          path: xray.zip
+          key: xray-${{ env.XRAY_VERSION }}-linux-64-${{ env.XRAY_SHA256 }}
+
+      - name: Install Xray-core
+        run: |
+          if [ ! -f xray.zip ]; then
+            curl -fsSL -o xray.zip \
+              "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
+          fi
+          echo "${XRAY_SHA256}  xray.zip" | sha256sum -c -
+          unzip -o xray.zip -d xray_bin
+          sudo mv xray_bin/xray /usr/local/bin/xray
+          sudo chmod +x /usr/local/bin/xray
+          xray version
+
+      - name: Run global tester
+        working-directory: scripts
+        timeout-minutes: 55
+        run: python -u main.py
+
+      - name: Commit updated results
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add working.txt working_base64.txt
+          git diff --cached --quiet || git commit -m "Update global working configs [skip ci]"
+          git push
