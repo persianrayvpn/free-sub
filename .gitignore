@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.tmp_out_*
+xray.zip
+xray_bin/
+.idea/
+.vscode/
