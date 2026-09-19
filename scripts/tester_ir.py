@@ -17,10 +17,10 @@ from relay_ir import IrRelay, LivePool, probe_relay
 from tester import full_xray_check
 
 TCP_TIMEOUT = 4.0
-XRAY_CONCURRENCY = 6
+XRAY_CONCURRENCY = 2
 SUSPECT_WINDOW = 15
-HEARTBEAT_EVERY = 10
-HEARTBEAT_SECS = 20
+HEARTBEAT_SECS = 30
+HEARTBEAT_STRIKES = 2
 
 
 async def tcp_via_relay(relay: IrRelay, host: str, port: int, timeout: float = TCP_TIMEOUT) -> bool:
@@ -81,39 +81,54 @@ class IrSession:
         self.since_hb = 0
         self.finished = 0
         self.inflight = 0
+        self._failover_lock = asyncio.Lock()
+        self._hb_strikes = 0
 
     def remaining(self) -> int:
         return self.pending.qsize()
 
     async def failover(self, reason: str) -> bool:
-        current = self.pool.current()
-        print(f"IR relay heartbeat failed ({reason})")
-        async with self.lock:
-            retry = list(self.suspect)
-            self.suspect.clear()
-        for node, attempts in retry:
-            raw = node.get("raw", "")
-            if raw in self.seen_ok:
-                continue
-            await self.pending.put((node, attempts))
-        nxt = await self.pool.mark_dead(current)
-        if nxt is None:
-            if not await self.pool.restock():
-                print("IR relay pool empty; aborting remaining tests.")
-                self.abort = True
+        async with self._failover_lock:
+            if self.abort:
                 return False
-        self.since_hb = 0
-        return True
+            current = self.pool.current()
+            print(f"IR relay heartbeat failed ({reason})")
+            async with self.lock:
+                retry = list(self.suspect)
+                self.suspect.clear()
+            for node, attempts in retry:
+                raw = node.get("raw", "")
+                if raw in self.seen_ok:
+                    continue
+                await self.pending.put((node, attempts))
+            nxt = await self.pool.mark_dead(current)
+            if nxt is None:
+                if not await self.pool.restock():
+                    print("IR relay pool empty; aborting remaining tests.")
+                    self.abort = True
+                    return False
+            self._hb_strikes = 0
+            return True
 
     async def heartbeat_if_needed(self, force: bool = False) -> bool:
         if self.abort:
             return False
-        if not force and self.since_hb < HEARTBEAT_EVERY:
+        if not force:
+            return True
+        if self._failover_lock.locked():
             return True
         relay = self.pool.current()
         ok = await probe_relay(relay, require_ir=False) if relay else False
-        self.since_hb = 0
         if ok:
+            self._hb_strikes = 0
+            return True
+        self._hb_strikes += 1
+        print(
+            f"IR relay heartbeat miss {self._hb_strikes}/{HEARTBEAT_STRIKES} "
+            f"({relay.url if relay else 'none'})",
+            flush=True,
+        )
+        if self._hb_strikes < HEARTBEAT_STRIKES:
             return True
         return await self.failover("scheduled heartbeat")
 
@@ -163,10 +178,17 @@ async def run_ir_tests(nodes: list[dict], pool: LivePool, concurrency: int = XRA
 
             relay = session.pool.current()
             if relay is None:
+                waited = 0.0
+                while session.pool.current() is None and not session.abort and waited < 20:
+                    await asyncio.sleep(0.5)
+                    waited += 0.5
+                relay = session.pool.current()
+            if relay is None:
                 async with session.lock:
                     session.inflight -= 1
                 await session.pending.put((node, attempts))
-                session.abort = True
+                if not session.abort:
+                    session.abort = True
                 return
 
             port = await ports.get()
@@ -204,7 +226,8 @@ async def run_ir_tests(nodes: list[dict], pool: LivePool, concurrency: int = XRA
                 session.finished += 1
                 session.since_hb += 1
                 session.suspect.append((node, attempts))
-            await session.heartbeat_if_needed()
+            # Heartbeat is the dedicated loop only. Workers must not
+            # all failover in parallel through one flaky public relay.
 
     while not session.abort:
         await asyncio.gather(*(worker() for _ in range(concurrency)))
